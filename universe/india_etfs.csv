@@ -1,0 +1,10 @@
+ticker,name,category,signal_eligible,note
+NIFTYBEES.NS,Nippon India ETF Nifty 50 BeES,Large cap,1,
+SBINIFTY50.NS,SBI Nifty 50 ETF,Large cap,1,Verify ticker; NSE symbol may be SETFNIF50
+JUNIORBEES.NS,Nippon India ETF Nifty Next 50 Junior BeES,Next 50,1,
+BANKBEES.NS,Nippon India ETF Nifty Bank BeES,Banking,1,
+HDFCSML250.NS,HDFC Nifty Smallcap 250 ETF,Small cap,1,
+GOLDBEES.NS,Nippon India ETF Gold BeES,Gold,1,
+TATAGOLD.NS,Tata Gold ETF,Gold,1,Short history
+SILVERBEES.NS,Nippon India Silver ETF,Silver,1,
+LIQUIDCASE.NS,Zerodha Nifty 1D Rate Liquid ETF,Liquid / cash,0,Price only accrues overnight interest; trend signals are meaningless

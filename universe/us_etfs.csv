@@ -1,0 +1,9 @@
+ticker,name,category,signal_eligible,note
+VOO,Vanguard S&P 500 ETF,US large cap,1,Same index as SPY
+QQQ,Invesco QQQ Trust (Nasdaq-100),US large cap growth,1,
+SPY,SPDR S&P 500 ETF Trust,US large cap,1,Same index as VOO
+SCHD,Schwab US Dividend Equity ETF,US dividend,1,
+BND,Vanguard Total Bond Market ETF,US bonds,1,Low volatility; 2R targets take longer
+VUG,Vanguard Growth ETF,US large cap growth,1,
+DIA,SPDR Dow Jones Industrial Average ETF,US large cap,1,
+IBIT,iShares Bitcoin Trust ETF,Bitcoin,1,Listed Jan 2024; short history
