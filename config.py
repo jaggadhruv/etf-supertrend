@@ -43,6 +43,19 @@ MARKETS = {
         # Retail cannot hold ETF shorts overnight in the Indian cash market, so bearish
         # flips are reported as exit/avoid signals and the backtest is long-only.
         "allow_shorts": False,
+        "no_short_reason": "no overnight ETF shorts in India",
+    },
+    "CRYPTO": {
+        "label": "Crypto",
+        "file": "universe/crypto.csv",
+        "currency": "$",
+        # Spot crypto can't be shorted without derivatives, so bearish flips are exit/avoid
+        # signals and the backtest is long-only. Set True if you trade perps or futures.
+        "allow_shorts": False,
+        "no_short_reason": "spot only, no shorting",
+        # Crypto trades 24/7 and its daily candle closes at 00:00 UTC. The scan runs at 22:30 UTC,
+        # so today's candle is still forming; drop it so a flip can't vanish by midnight.
+        "drop_partial_bar": True,
     },
 }
 

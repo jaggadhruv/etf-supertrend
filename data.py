@@ -1,6 +1,6 @@
 """Price data: sequential yfinance fetch with a fixed delay (same pattern as the stock tool)."""
 import time
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 import pandas as pd
 
@@ -19,7 +19,7 @@ def fetch_history(ticker: str, years: int = config.HISTORY_YEARS) -> pd.DataFram
     """Daily OHLCV, dividend/split adjusted. Returns None if no usable data."""
     import yfinance as yf
 
-    start = (datetime.utcnow() - timedelta(days=int(years * 365.25))).strftime("%Y-%m-%d")
+    start = (datetime.now(timezone.utc) - timedelta(days=int(years * 365.25))).strftime("%Y-%m-%d")
     last_err = None
     for attempt in range(config.FETCH_RETRIES):
         try:

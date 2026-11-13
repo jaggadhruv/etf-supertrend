@@ -1,6 +1,7 @@
 # ETF Supertrend Scanner
 
-Sister tool to the stock Supertrend scanner, for a fixed list of US and Indian ETFs.
+Sister tool to the stock Supertrend scanner, for a fixed list of US and Indian ETFs plus Bitcoin,
+Ethereum and Solana.
 Daily Supertrend (ATR 10, multiplier 2.5) flips on daily candles only, filtered by the overall trend
 and by a minimum target size, ranked by a Quality Index, with a per-ETF backtest of "enter on flip, exit at stop or 2R".
 
@@ -9,7 +10,7 @@ and by a minimum target size, ranked by a Quality Index, with a per-ETF backtest
 ```bash
 pip install -r requirements.txt
 python scan.py                # both markets, scan + backtest
-python scan.py --market US    # or IN
+python scan.py --market US    # or IN, CRYPTO
 python scan.py --no-backtest  # faster; the backtest-edge part of the score is neutral
 ```
 
@@ -21,7 +22,7 @@ No positions are stored anywhere in the repo.
 
 ## Universe
 
-Edit `universe/us_etfs.csv` and `universe/india_etfs.csv`. `signal_eligible = 0` keeps an ETF on the
+Edit `universe/us_etfs.csv`, `universe/india_etfs.csv` and `universe/crypto.csv` (Yahoo tickers like `BTC-USD`). `signal_eligible = 0` keeps an ETF on the
 trend board but out of signals and backtests (LIQUIDCASE ships that way: its price only accrues
 overnight interest, so Supertrend flips on it are noise).
 
@@ -41,13 +42,20 @@ you don't check (or a day the scan didn't run) never hides an entry. Each signal
 "Left to target" shows the % still available from the last close. `data/signal_history.json`
 keeps the written record: when each signal was first seen and its latest status.
 
+## Crypto notes
+
+Crypto trades 7 days a week, so a 200-day SMA there covers about 200 calendar days (versus about
+290 for ETFs), and the 7-day window holds 7 candles instead of 5. The scan runs at 22:30 UTC, before
+the crypto daily candle closes at midnight UTC, so today's unfinished candle is dropped. Weekend
+flips show up in Monday's report through the 7-day window.
+
 ## Rules
 
 | Step | Rule |
 |---|---|
 | Overall trend | **Up**: close above the 200-day SMA *and* the SMA higher than 20 sessions ago. **Down**: the mirror. Anything else is **Neutral** and blocks all flips. Set `REGIME_MODE = "sma"` for plain price-vs-SMA. |
 | Long | Supertrend flips up while the trend is Up |
-| Short | Supertrend flips down while the trend is Down (US only; India shows these as exit/avoid) |
+| Short | Supertrend flips down while the trend is Down (US only; India and Crypto show these as exit/avoid) |
 | Entry | Next session's open (`ENTRY_MODE = "signal_close"` to enter at the flip close) |
 | Stop | Supertrend line on the flip bar (fixed, not trailed) |
 | Target | 2R from entry |

@@ -140,7 +140,7 @@ def evaluate_flip(df: pd.DataFrame, i: int, meta: dict, market: dict, edge_by_si
                       "reason": f"trend is {REGIME_NAME[int(row['regime'])].lower()}, flip is {base['side'].lower()}"}
     if side == -1 and not market["allow_shorts"]:
         return None, {**base, "kind": "exit",
-                      "reason": "bearish flip in a downtrend: exit or avoid longs (no overnight ETF shorts)"}
+                      "reason": f"bearish flip in a downtrend: exit or avoid longs ({market.get('no_short_reason', 'shorts off')})"}
 
     plan = plan_entry(df, i)
     if plan is None:  # flip on the latest bar: entry is next open, use close as the reference

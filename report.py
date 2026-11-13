@@ -107,7 +107,7 @@ def board(snaps, universe):
         st_txt = f'<span class="st-{"up" if s["st_dir"] == 1 else "down"}">ST {"up" if s["st_dir"] == 1 else "down"}</span>'
         since = "" if s["bars_since_flip"] is None else f', flipped {s["bars_since_flip"]}d ago'
         off = "" if meta["signal_eligible"] else " off"
-        tiles.append(f'<div class="tile {reg}{off}" title="{escape(meta["name"])}"><div class="hd"><b>{escape(t.replace(".NS", ""))}</b>'
+        tiles.append(f'<div class="tile {reg}{off}" title="{escape(meta["name"])}"><div class="hd"><b>{escape(t.replace(".NS", "").replace("-USD", ""))}</b>'
                      f'<span class="px">{s["close"]:,.2f}</span></div><div class="ln">{reg_txt}</div>'
                      f'<div class="ln">{st_txt}{since}</div></div>')
     return f'<div class="board">{"".join(tiles)}</div>'
@@ -122,7 +122,7 @@ def signals_table(sigs, cur):
         return ('<div class="empty">No trend-aligned flips with a big enough target in the last '
                 f'{config.HISTORY_DAYS} days. Nothing to act on.</div>')
     cols = 11
-    head = ("<tr><th>#</th><th class=l>ETF</th><th class=l>Side</th><th>Flip</th>"
+    head = ("<tr><th>#</th><th class=l>Ticker</th><th class=l>Side</th><th>Flip</th>"
             "<th>Entry</th><th>Stop</th><th>Target 2R</th><th>Result / now</th>"
             "<th>Left to target<br>late R:R</th><th class=l>Verdict</th><th>Quality</th></tr>")
     rows = []
@@ -135,7 +135,7 @@ def signals_table(sigs, cur):
         tech = f'Vol {f(s["vol_ratio"], 1)}x, RSI {f(s["rsi"], 0)}, ADX {f(s["adx"], 0)}'
         rows.append(
             f'<tr class="main{" done" if done else ""}"><td>{n}</td>'
-            f'<td class=l title="{escape(s["name"])}"><b>{escape(s["ticker"].replace(".NS", ""))}</b></td>'
+            f'<td class=l title="{escape(s["name"])}"><b>{escape(s["ticker"].replace(".NS", "").replace("-USD", ""))}</b></td>'
             f'<td class="l {s["side"].lower()}">{s["side"]}</td>'
             f'<td>{s["flip_date"]}<br><span class=sub>{s["age"]}d ago</span></td>'
             f'<td>{entry}</td><td>{money(s["stop"], cur)}<br><span class=sub>{f(-s["stop_pct"], 1, "%")}</span></td>'
@@ -157,13 +157,13 @@ def info_list(infos):
     if not infos:
         return ""
     items = "".join(
-        f'<li><b>{escape(i["ticker"].replace(".NS", ""))}</b> <span class="{i["side"].lower()}">{i["side"].lower()} flip</span> '
+        f'<li><b>{escape(i["ticker"].replace(".NS", "").replace("-USD", ""))}</b> <span class="{i["side"].lower()}">{i["side"].lower()} flip</span> '
         f'on {i["flip_date"]}: {escape(i["reason"])}</li>' for i in infos)
     return f'<h3>Latest flip not traded</h3><ul class="plain">{items}</ul>'
 
 
 def bt_table(bts, cur, allow_shorts):
-    head = ("<tr><th class=l>ETF</th><th>Trades</th><th>Win rate</th><th>Expectancy</th><th>Profit factor</th>"
+    head = ("<tr><th class=l>Ticker</th><th>Trades</th><th>Win rate</th><th>Expectancy</th><th>Profit factor</th>"
             "<th>Avg trade</th><th>Max DD</th><th>Loss streak</th><th>Avg hold</th><th>In market</th>"
             f"<th>System CAGR</th><th>Buy &amp; hold CAGR</th><th>No-filter exp.</th></tr>")
     rows = []
@@ -176,7 +176,7 @@ def bt_table(bts, cur, allow_shorts):
             warn = ""
         wr_cls = "" if m["win_rate"] is None else ("pos" if m["win_rate"] > BREAKEVEN_WIN_RATE else "neg")
         rows.append(
-            f'<tr><td class=l><b>{escape(t.replace(".NS", ""))}</b>{warn}</td>'
+            f'<tr><td class=l><b>{escape(t.replace(".NS", "").replace("-USD", ""))}</b>{warn}</td>'
             f'<td>{m["trades"]}</td><td class="{wr_cls}">{f(m["win_rate"], 1, "%")}</td>'
             f'<td class="{cls_sign(m["expectancy"])}">{f(m["expectancy"], 2, "R", True)}</td>'
             f'<td>{f(m["profit_factor"], 2)}</td><td class="{cls_sign(m["avg_ret_pct"])}">{f(m["avg_ret_pct"], 1, "%", True)}</td>'
@@ -195,7 +195,7 @@ def bt_table(bts, cur, allow_shorts):
         open_txt = (f'<div><span>Open trade:</span> {ot["side"]} from {ot["entry_date"]}, {f(ot["r"], 2, "R", True)}</div>'
                     if ot else "")
         detail.append(
-            f'<h3>{escape(t.replace(".NS", ""))}</h3><div class="kv"><div><span>Tested:</span> {m["start_date"] or "–"} to {m["end_date"]}</div>{side_txt}'
+            f'<h3>{escape(t.replace(".NS", "").replace("-USD", ""))}</h3><div class="kv"><div><span>Tested:</span> {m["start_date"] or "–"} to {m["end_date"]}</div>{side_txt}'
             f'<div><span>Avg win / loss:</span> {f(m["avg_win_pct"], 1, "%", True)} / {f(m["avg_loss_pct"], 1, "%", True)}</div>'
             f'<div><span>Total:</span> {f(m["total_r"], 1, "R", True)}</div>'
             f'<div><span>Trades per year:</span> {f(m["trades_per_year"], 1)}</div>'
@@ -210,7 +210,7 @@ def bt_table(bts, cur, allow_shorts):
 def pooled_line(agg, agg_u):
     if not agg.get("trades"):
         return '<p class="sub">No closed trades yet.</p>'
-    return (f'<p class="sub">All ETFs pooled: <b>{agg["trades"]}</b> trades, win rate <b>{agg["win_rate"]:.1f}%</b> '
+    return (f'<p class="sub">All tickers pooled: <b>{agg["trades"]}</b> trades, win rate <b>{agg["win_rate"]:.1f}%</b> '
             f'(break-even at 2R is {BREAKEVEN_WIN_RATE:.1f}%), expectancy <b>{agg["expectancy"]:+.2f}R</b>, '
             f'average trade <b>{agg["avg_ret_pct"]:+.1f}%</b>, '
             f'profit factor <b>{f(agg["profit_factor"], 2)}</b>. Without the trend filter: '

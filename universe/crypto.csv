@@ -1,0 +1,4 @@
+ticker,name,category,signal_eligible,note
+BTC-USD,Bitcoin,Crypto,1,Same asset as IBIT
+ETH-USD,Ethereum,Crypto,1,
+SOL-USD,Solana,Crypto,1,Yahoo history from 2020

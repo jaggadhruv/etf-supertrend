@@ -1,7 +1,7 @@
 """ETF Supertrend Scanner.
 
     python scan.py                 # scan + backtest, both markets
-    python scan.py --market US     # one market only
+    python scan.py --market US     # one market only (US, IN or CRYPTO)
     python scan.py --no-backtest   # faster, quality score uses neutral backtest edge
 """
 import argparse
@@ -11,7 +11,7 @@ import os
 import shutil
 import time
 from dataclasses import asdict
-from datetime import datetime
+from datetime import datetime, timezone
 
 import config
 import history
@@ -26,14 +26,16 @@ def run_market(key: str, do_backtest: bool, fetch=fetch_history):
     universe = load_universe(market["file"])
     snaps, signals, infos, backtests, failed = {}, [], [], {}, []
     pooled, pooled_u, trade_log = [], [], []
-    print(f"\n{market['label']}: {len(universe)} ETFs")
+    print(f"\n{market['label']}: {len(universe)} tickers")
 
     for _, meta in universe.iterrows():
         t = meta["ticker"]
         print(f"  {t}")
         raw = fetch(t)
         time.sleep(config.FETCH_DELAY_SEC)
-        if raw is None:
+        if raw is not None and market.get("drop_partial_bar") and raw.index[-1].date() >= datetime.now(timezone.utc).date():
+            raw = raw.iloc[:-1]  # today's candle hasn't closed yet
+        if raw is None or raw.empty:
             failed.append(t)
             continue
         df = enrich(raw)
@@ -82,7 +84,7 @@ def cleanup_reports():
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--market", choices=["US", "IN", "ALL"], default="ALL")
+    ap.add_argument("--market", choices=["US", "IN", "CRYPTO", "ALL"], default="ALL")
     ap.add_argument("--no-backtest", action="store_true")
     args = ap.parse_args()
 
@@ -90,7 +92,7 @@ def main():
     sections = [(k, run_market(k, not args.no_backtest)) for k in keys]
     failed = [t for _, s in sections for t in s["failed"]]
 
-    run_date = datetime.utcnow().strftime("%Y-%m-%d")
+    run_date = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     history.update({k: s["signals"] for k, s in sections}, run_date)
     html = report.build(run_date, [s for _, s in sections], failed)
     os.makedirs(config.REPORT_DIR, exist_ok=True)
