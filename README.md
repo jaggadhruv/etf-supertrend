@@ -1,3 +1,6 @@
+# Website
+https://jaggadhruv.github.io/etf-supertrend/
+
 # ETF Supertrend Scanner
 
 Sister tool to the stock Supertrend scanner, for a fixed list of US and Indian ETFs plus Bitcoin,
