@@ -85,7 +85,3 @@ def adx(df: pd.DataFrame, period: int = 14):
     dx = 100 * (plus_di - minus_di).abs() / denom
     return rma(dx, period), plus_di, minus_di
 
-
-def to_weekly(df: pd.DataFrame) -> pd.DataFrame:
-    agg = {"Open": "first", "High": "max", "Low": "min", "Close": "last", "Volume": "sum"}
-    return df[list(agg)].resample("W-FRI").agg(agg).dropna(subset=["Close"])

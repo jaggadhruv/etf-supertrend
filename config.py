@@ -13,7 +13,8 @@ SMA_SLOPE_LOOKBACK = 20
 REGIME_MODE = "sma_slope"
 
 # Scanner
-SIGNAL_LOOKBACK_BARS = 5          # flips within the last N daily bars are shown
+HISTORY_DAYS = 7                  # calendar days of flips kept in the report and the history log
+LATE_ENTRY_MIN_RR = 1.5           # entering late at today's close still needs this reward:risk
 FRESHNESS_PENALTY_PER_BAR = 4     # quality points removed per bar since the flip
 HISTORY_YEARS = 15                # price history pulled for indicators + backtest
 FETCH_DELAY_SEC = 0.3             # sequential fetch delay (avoids Yahoo rate limits)
@@ -22,6 +23,8 @@ FETCH_RETRIES = 3
 # Trade rules (scanner + backtest use the same rules)
 ENTRY_MODE = "next_open"          # "next_open" (realistic) or "signal_close"
 TARGET_R = 2.0                    # exit at 2R
+MIN_TARGET_PCT = 6.0              # skip flips whose 2R target is less than this % from entry
+TARGET_PCT_FULL_SCORE = 15.0      # a target this far away gets full "move size" points
 # Stop = Supertrend line on the flip bar. Exit = stop or 2R, whichever comes first.
 # If stop and target are both touched in the same bar, the stop is assumed (conservative).
 
@@ -32,7 +35,6 @@ MARKETS = {
         "file": "universe/us_etfs.csv",
         "currency": "$",
         "allow_shorts": True,
-        "risk_per_trade": 50.0,   # used for position size and $ P&L; set None to hide
     },
     "IN": {
         "label": "India",
@@ -41,7 +43,6 @@ MARKETS = {
         # Retail cannot hold ETF shorts overnight in the Indian cash market, so bearish
         # flips are reported as exit/avoid signals and the backtest is long-only.
         "allow_shorts": False,
-        "risk_per_trade": None,
     },
 }
 
@@ -56,7 +57,7 @@ QUALITY_WEIGHTS = {
     "trend": 20,      # SMA200 slope + healthy distance from SMA200
     "adx": 15,        # trend strength, with DI direction check
     "momentum": 15,   # RSI in the healthy zone, not overextended
-    "weekly": 10,     # weekly Supertrend agrees with the flip
+    "target": 10,     # size of the 2R move in % (bigger = more worth a swing trade)
     "risk": 10,       # stop distance in ATRs (tighter = easier 2R)
     "edge": 10,       # this ETF's own backtested expectancy for this side
 }
@@ -64,4 +65,5 @@ GRADE_BANDS = [(75, "A"), (60, "B"), (45, "C"), (0, "D")]
 
 # Output
 REPORT_DIR = "reports"
+HISTORY_FILE = "data/signal_history.json"
 KEEP_REPORTS = 30

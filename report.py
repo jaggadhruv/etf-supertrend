@@ -5,8 +5,8 @@ import config
 from backtest import BREAKEVEN_WIN_RATE
 
 PART_LABELS = {"volume": "Volume", "trend": "Trend", "adx": "ADX", "momentum": "Momentum",
-               "weekly": "Weekly", "risk": "Risk", "edge": "Backtest edge"}
-PART_SHADES = {"volume": 1.0, "trend": .82, "adx": .66, "momentum": .52, "weekly": .40, "risk": .30, "edge": .22}
+               "target": "Move size", "risk": "Stop tightness", "edge": "Backtest edge"}
+PART_SHADES = {"volume": 1.0, "trend": .82, "adx": .66, "momentum": .52, "target": .40, "risk": .30, "edge": .22}
 
 CSS = """
 :root{--paper:#F4F6F5;--panel:#FFFFFF;--ink:#18211E;--muted:#5D6A65;--rule:#D8DED9;
@@ -41,7 +41,7 @@ tr:last-child td{border-bottom:0}
 .long{color:var(--long);font-weight:600}.short{color:var(--short);font-weight:600}
 .pill{display:inline-block;padding:1px 8px;border-radius:10px;font-size:12px;font-weight:600;background:var(--tint-flat)}
 .pill.A{background:var(--tint-long);color:var(--long)}.pill.D{background:var(--tint-short);color:var(--short)}
-.st-Active,.st-Pending{color:var(--ink)}.st-Target{color:var(--long)}.st-Stopped{color:var(--short)}
+.vd{font-weight:600;font-size:13px}.vd.go{color:var(--long)}.vd.wait{color:var(--muted)}.vd.won{color:var(--long);font-weight:400}.vd.lost{color:var(--short);font-weight:400}
 tr.done td{color:var(--muted)}
 .bar{display:flex;width:96px;height:7px;border-radius:2px;overflow:hidden;background:var(--tint-flat);margin:5px 0 0 auto}
 .bar span{display:block;height:100%}
@@ -113,36 +113,43 @@ def board(snaps, universe):
     return f'<div class="board">{"".join(tiles)}</div>'
 
 
-def signals_table(sigs, cur, show_size):
+VERDICT_CLASS = {"Enter at next open": "go", "Can still enter": "go", "Moved on, skip": "wait",
+                 "Supertrend flipped back": "wait", "Closed at target": "won", "Closed at stop": "lost"}
+
+
+def signals_table(sigs, cur):
     if not sigs:
-        return ('<div class="empty">No trend-aligned flips in the last '
-                f'{config.SIGNAL_LOOKBACK_BARS} sessions. Nothing to act on today.</div>')
-    cols = 12 + (1 if show_size else 0)
-    head = ("<tr><th>#</th><th class=l>ETF</th><th class=l>Side</th><th class=l>Status</th><th>Flip</th>"
-            "<th>Entry</th><th>Stop</th><th>Target 2R</th><th>Risk</th><th>Result / now</th>"
-            + (f"<th>Size for {cur}{show_size:,.0f} risk</th>" if show_size else "")
-            + "<th>Vol x / RSI / ADX</th><th>Quality</th></tr>")
+        return ('<div class="empty">No trend-aligned flips with a big enough target in the last '
+                f'{config.HISTORY_DAYS} days. Nothing to act on.</div>')
+    cols = 11
+    head = ("<tr><th>#</th><th class=l>ETF</th><th class=l>Side</th><th>Flip</th>"
+            "<th>Entry</th><th>Stop</th><th>Target 2R</th><th>Result / now</th>"
+            "<th>Left to target<br>late R:R</th><th class=l>Verdict</th><th>Quality</th></tr>")
     rows = []
     for n, s in enumerate(sigs, 1):
-        done = s["status"] in ("Target hit", "Stopped")
+        vc = VERDICT_CLASS.get(s["verdict"], "wait")
+        done = vc in ("won", "lost") or s["verdict"] == "Supertrend flipped back"
         entry = money(s["entry"], cur) + ("*" if s["entry_pending"] else "")
-        size = (f"<td>{f(s['units'], 2)} units<br><span class=sub>{money(s['position_value'], cur)}</span></td>"
-                if show_size else "")
-        tech = f'{f(s["vol_ratio"], 1)} / {f(s["rsi"], 0)} / {f(s["adx"], 0)}'
+        late = ("–" if s["left_pct"] is None else
+                f'{f(s["left_pct"], 1, "%", True)}<br><span class=sub>{f(s["late_rr"], 1)}:1</span>')
+        tech = f'Vol {f(s["vol_ratio"], 1)}x, RSI {f(s["rsi"], 0)}, ADX {f(s["adx"], 0)}'
         rows.append(
             f'<tr class="main{" done" if done else ""}"><td>{n}</td>'
             f'<td class=l title="{escape(s["name"])}"><b>{escape(s["ticker"].replace(".NS", ""))}</b></td>'
             f'<td class="l {s["side"].lower()}">{s["side"]}</td>'
-            f'<td class="l st-{s["status"].split()[0]}">{s["status"]}</td>'
             f'<td>{s["flip_date"]}<br><span class=sub>{s["age"]}d ago</span></td>'
-            f'<td>{entry}</td><td>{money(s["stop"], cur)}</td><td>{money(s["target"], cur)}</td>'
-            f'<td>{f(s["risk_pct"], 1, "%")}</td><td class="{cls_sign(s["r_now"])}">{f(s["r_now"], 2, "R", True)}</td>'
-            f'{size}<td>{tech}</td>'
+            f'<td>{entry}</td><td>{money(s["stop"], cur)}<br><span class=sub>{f(-s["stop_pct"], 1, "%")}</span></td>'
+            f'<td>{money(s["target"], cur)}<br><span class=sub>{f(s["target_pct"], 1, "%", True)}</span></td>'
+            f'<td class="{cls_sign(s["r_now"])}">{f(s["r_now"], 2, "R", True)}<br>'
+            f'<span class=sub>{f(s["pct_now"], 1, "%", True)}</span></td>'
+            f'<td>{late}</td><td class="l"><span class="vd {vc}">{s["verdict"]}</span></td>'
             f'<td><b>{s["score"]:.0f}</b> <span class="pill {s["grade"]}">{s["grade"]}</span>{score_bar(s["parts"])}</td></tr>'
-            f'<tr class="note{" done" if done else ""}"><td></td><td colspan="{cols - 1}">{escape(s["name"])}. '
+            f'<tr class="note{" done" if done else ""}"><td></td><td colspan="{cols - 1}">{escape(s["name"])}. {tech}. '
             f'{escape(_sentence(s["notes"]))}.</td></tr>')
     foot = ('<p class="sub" style="margin-top:8px">* Flip printed on the latest close: entry is the next open, '
             'shown at the last close for reference. Re-check the stop distance after the open.</p>')
+    if not any(s["entry_pending"] for s in sigs):
+        foot = ""
     return f'<div class="tw"><table>{head}{"".join(rows)}</table></div>{legend()}{foot}'
 
 
@@ -152,23 +159,27 @@ def info_list(infos):
     items = "".join(
         f'<li><b>{escape(i["ticker"].replace(".NS", ""))}</b> <span class="{i["side"].lower()}">{i["side"].lower()} flip</span> '
         f'on {i["flip_date"]}: {escape(i["reason"])}</li>' for i in infos)
-    return f'<h3>Flips not traded</h3><ul class="plain">{items}</ul>'
+    return f'<h3>Latest flip not traded</h3><ul class="plain">{items}</ul>'
 
 
-def bt_table(bts, cur, risk_amt, allow_shorts):
+def bt_table(bts, cur, allow_shorts):
     head = ("<tr><th class=l>ETF</th><th>Trades</th><th>Win rate</th><th>Expectancy</th><th>Profit factor</th>"
-            "<th>Total R</th><th>Max DD</th><th>Loss streak</th><th>Avg hold</th><th>In market</th>"
+            "<th>Avg trade</th><th>Max DD</th><th>Loss streak</th><th>Avg hold</th><th>In market</th>"
             f"<th>System CAGR</th><th>Buy &amp; hold CAGR</th><th>No-filter exp.</th></tr>")
     rows = []
     for t, (m, mu) in bts.items():
-        small = m["trades"] < config.MIN_TRADES_FOR_CONFIDENCE
-        warn = ' <span class="warn" title="Small sample">small sample</span>' if small else ""
+        if m["trades"] == 0 and m["below_min"]:
+            warn = f' <span class="warn">no flips with a {config.MIN_TARGET_PCT:g}%+ target</span>'
+        elif m["trades"] < config.MIN_TRADES_FOR_CONFIDENCE:
+            warn = ' <span class="warn">small sample</span>'
+        else:
+            warn = ""
         wr_cls = "" if m["win_rate"] is None else ("pos" if m["win_rate"] > BREAKEVEN_WIN_RATE else "neg")
         rows.append(
             f'<tr><td class=l><b>{escape(t.replace(".NS", ""))}</b>{warn}</td>'
             f'<td>{m["trades"]}</td><td class="{wr_cls}">{f(m["win_rate"], 1, "%")}</td>'
             f'<td class="{cls_sign(m["expectancy"])}">{f(m["expectancy"], 2, "R", True)}</td>'
-            f'<td>{f(m["profit_factor"], 2)}</td><td class="{cls_sign(m["total_r"])}">{f(m["total_r"], 1, "R", True)}</td>'
+            f'<td>{f(m["profit_factor"], 2)}</td><td class="{cls_sign(m["avg_ret_pct"])}">{f(m["avg_ret_pct"], 1, "%", True)}</td>'
             f'<td>{f(m["max_dd_r"], 1, "R")}</td><td>{m["max_loss_streak"] if m["max_loss_streak"] is not None else "–"}</td>'
             f'<td>{f(m["avg_bars"], 0, "d")}</td><td>{f(m["exposure"], 0, "%")}</td>'
             f'<td class="{cls_sign(m["system_cagr"])}">{f(m["system_cagr"], 1, "%")}</td>'
@@ -180,18 +191,18 @@ def bt_table(bts, cur, risk_amt, allow_shorts):
         side_txt = (f'<div><span>Long:</span> {lg["n"]} trades, {f(lg["win_rate"], 0, "%")} win, {f(lg["expectancy"], 2, "R", True)}</div>')
         if allow_shorts:
             side_txt += f'<div><span>Short:</span> {sh["n"]} trades, {f(sh["win_rate"], 0, "%")} win, {f(sh["expectancy"], 2, "R", True)}</div>'
-        pnl = (f'<div><span>P&amp;L at {cur}{risk_amt:,.0f} risk:</span> {money(m["total_r"] * risk_amt, cur) if m["total_r"] is not None else "–"}</div>'
-               if risk_amt else "")
         ot = m["open_trade"]
         open_txt = (f'<div><span>Open trade:</span> {ot["side"]} from {ot["entry_date"]}, {f(ot["r"], 2, "R", True)}</div>'
                     if ot else "")
         detail.append(
             f'<h3>{escape(t.replace(".NS", ""))}</h3><div class="kv"><div><span>Tested:</span> {m["start_date"] or "–"} to {m["end_date"]}</div>{side_txt}'
-            f'<div><span>Avg win / loss:</span> {f(m["avg_win"], 2, "R")} / {f(m["avg_loss"], 2, "R")}</div>'
+            f'<div><span>Avg win / loss:</span> {f(m["avg_win_pct"], 1, "%", True)} / {f(m["avg_loss_pct"], 1, "%", True)}</div>'
+            f'<div><span>Total:</span> {f(m["total_r"], 1, "R", True)}</div>'
             f'<div><span>Trades per year:</span> {f(m["trades_per_year"], 1)}</div>'
             f'<div><span>Buy &amp; hold total:</span> {f(m.get("buy_hold_return"), 0, "%")}</div>'
             f'<div><span>Without trend filter:</span> {mu["trades"]} trades, {f(mu["win_rate"], 0, "%")} win, PF {f(mu["profit_factor"], 2)}</div>'
-            f'{pnl}{open_txt}<div><span>Skipped (gapped past stop):</span> {m["skipped"]}</div></div>')
+            f'{open_txt}<div><span>Flips skipped, target under {config.MIN_TARGET_PCT:g}%:</span> {m["below_min"]}</div>'
+            f'<div><span>Flips skipped, opened past stop:</span> {m["skipped"]}</div></div>')
     return (f'<div class="tw"><table>{head}{"".join(rows)}</table></div>'
             f'<details><summary>Per-ETF detail</summary>{"".join(detail)}</details>')
 
@@ -201,6 +212,7 @@ def pooled_line(agg, agg_u):
         return '<p class="sub">No closed trades yet.</p>'
     return (f'<p class="sub">All ETFs pooled: <b>{agg["trades"]}</b> trades, win rate <b>{agg["win_rate"]:.1f}%</b> '
             f'(break-even at 2R is {BREAKEVEN_WIN_RATE:.1f}%), expectancy <b>{agg["expectancy"]:+.2f}R</b>, '
+            f'average trade <b>{agg["avg_ret_pct"]:+.1f}%</b>, '
             f'profit factor <b>{f(agg["profit_factor"], 2)}</b>. Without the trend filter: '
             f'{agg_u.get("trades", 0)} trades, expectancy {f(agg_u.get("expectancy"), 2, "R", True)}.</p>')
 
@@ -215,14 +227,15 @@ def build(run_date: str, sections: list, failed: list) -> str:
         body.append(f'<h2>{escape(m["label"])}</h2>')
         body.append(f'<p class="sub">Trend board: top border shows the overall trend, ST shows the daily Supertrend.</p>')
         body.append(board(sec["snaps"], sec["universe"]))
-        body.append(f'<h3>Ranked flips</h3><p class="sub">Trend-aligned flips from the last {config.SIGNAL_LOOKBACK_BARS} sessions, best quality first. '
-                    'Played-out trades drop to the bottom.</p>')
-        body.append(signals_table(sec["signals"], m["currency"], m.get("risk_per_trade")))
+        body.append(f'<h3>Signals from the last {config.HISTORY_DAYS} days</h3><p class="sub">Every trend-aligned flip with a target at least '
+                    f'{config.MIN_TARGET_PCT:g}% away, so a day you skip never hides an entry. Ones you can still act on come first, '
+                    f'best quality first; a late entry needs {config.LATE_ENTRY_MIN_RR:g}:1 reward to risk left from the last close.</p>')
+        body.append(signals_table(sec["signals"], m["currency"]))
         body.append(info_list(sec["infos"]))
         if sec.get("backtests"):
             body.append(f'<h3>Backtest: enter on flip, exit at stop or {config.TARGET_R:g}R</h3>')
             body.append(pooled_line(sec["agg"], sec["agg_unfiltered"]))
-            body.append(bt_table(sec["backtests"], m["currency"], m.get("risk_per_trade"), m["allow_shorts"]))
+            body.append(bt_table(sec["backtests"], m["currency"], m["allow_shorts"]))
     fail_txt = f'<p class="warn">No data for: {", ".join(map(escape, failed))}. Check the ticker on finance.yahoo.com.</p>' if failed else ""
     return f"""<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
@@ -231,12 +244,13 @@ def build(run_date: str, sections: list, failed: list) -> str:
 <link href="https://fonts.googleapis.com/css2?family=Source+Sans+3:wght@400;600;700&display=swap" rel="stylesheet">
 <style>{CSS}</style></head><body><div class="wrap">
 <header><h1>ETF Supertrend Scanner</h1>
-<p>{run_date}. Supertrend ATR {config.ATR_PERIOD}, multiplier {config.ATR_MULTIPLIER}. Flips count only with the trend: {regime_txt}. Entry at {entry_txt}, stop at the Supertrend line, target {config.TARGET_R:g}R.</p>
+<p>{run_date}. Supertrend ATR {config.ATR_PERIOD}, multiplier {config.ATR_MULTIPLIER}. Flips count only with the trend: {regime_txt}. Entry at {entry_txt}, stop at the Supertrend line, target {config.TARGET_R:g}R. Daily candles only. Flips whose target is less than {config.MIN_TARGET_PCT:g}% away are skipped.</p>
 {fail_txt}</header>
 {"".join(body)}
 <footer><p><b>Reading the backtest.</b> Expectancy is the average result per trade in R (risk units); above 0 means an edge.
 With a {config.TARGET_R:g}R target you break even at a {BREAKEVEN_WIN_RATE:.1f}% win rate. Profit factor is gross wins over gross losses.
 Max DD is the worst peak-to-trough run of the cumulative R curve. System CAGR compounds {config.RISK_PCT_FOR_COMPARISON:g}% account risk per trade,
 so it is comparable to buy &amp; hold CAGR. "No-filter exp." is the same rules without the trend filter, to show whether the filter earns its keep.
+Avg trade is the average % move captured per closed trade. The backtest applies the same {config.MIN_TARGET_PCT:g}% minimum target as the scanner.
 Prices are dividend-adjusted, no commissions or slippage. Stops and targets assume the level fills except on gaps.</p></footer>
 </div></body></html>"""

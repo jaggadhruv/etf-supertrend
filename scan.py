@@ -14,6 +14,7 @@ from dataclasses import asdict
 from datetime import datetime
 
 import config
+import history
 import report
 from backtest import aggregate, run_backtest
 from data import fetch_history, load_universe
@@ -50,9 +51,8 @@ def run_market(key: str, do_backtest: bool, fetch=fetch_history):
             trade_log += [asdict(x) for x in trades]
             edge = {"long": m["long"], "short": m["short"]}
 
-        sig, info = find_signals(df, meta.to_dict(), market, edge)
-        if sig:
-            signals.append(sig)
+        sigs, info = find_signals(df, meta.to_dict(), market, edge)
+        signals += sigs
         if info:
             infos.append(info)
 
@@ -91,6 +91,7 @@ def main():
     failed = [t for _, s in sections for t in s["failed"]]
 
     run_date = datetime.utcnow().strftime("%Y-%m-%d")
+    history.update({k: s["signals"] for k, s in sections}, run_date)
     html = report.build(run_date, [s for _, s in sections], failed)
     os.makedirs(config.REPORT_DIR, exist_ok=True)
     out = os.path.join(config.REPORT_DIR, f"etf_supertrend_{run_date}.html")

@@ -6,7 +6,7 @@ import pandas as pd
 
 import config
 from backtest import plan_entry, simulate_exit
-from indicators import adx, rsi, supertrend, to_weekly
+from indicators import adx, rsi, supertrend
 
 
 def enrich(df: pd.DataFrame) -> pd.DataFrame:
@@ -26,13 +26,6 @@ def enrich(df: pd.DataFrame) -> pd.DataFrame:
     return out
 
 
-def weekly_direction(df: pd.DataFrame) -> int:
-    w = to_weekly(df)
-    if len(w) < config.ATR_PERIOD + 3:
-        return 0
-    return int(supertrend(w, config.ATR_PERIOD, config.ATR_MULTIPLIER)["st_dir"].iloc[-1])
-
-
 REGIME_NAME = {1: "Up", -1: "Down", 0: "Neutral"}
 
 
@@ -44,7 +37,7 @@ def _ok(x):
     return x is not None and not (isinstance(x, float) and math.isnan(x))
 
 
-def quality(row, side: int, risk: float, weekly_dir: int, edge: dict | None, age: int):
+def quality(row, side: int, risk: float, target_pct: float, edge: dict | None, age: int):
     """Quality Index 0-100. Returns (score, parts{name: points}, notes[list])."""
     W = config.QUALITY_WEIGHTS
     parts, notes = {}, []
@@ -91,9 +84,8 @@ def quality(row, side: int, risk: float, weekly_dir: int, edge: dict | None, age
         mom = _clip(r / 50) * 0.4
     parts["momentum"] = mom * W["momentum"]
 
-    parts["weekly"] = W["weekly"] if weekly_dir == side else 0.0
-    if weekly_dir != side:
-        notes.append("weekly Supertrend disagrees")
+    span = max(config.TARGET_PCT_FULL_SCORE - config.MIN_TARGET_PCT, 1e-9)
+    parts["target"] = _clip((target_pct - config.MIN_TARGET_PCT) / span) * W["target"]
 
     r_atr = risk / row["atr"] if row["atr"] > 0 else 5
     parts["risk"] = _clip((5 - r_atr) / 2.5) * W["risk"]
@@ -133,18 +125,9 @@ def snapshot(df: pd.DataFrame) -> dict:
     }
 
 
-def find_signals(df: pd.DataFrame, meta: dict, market: dict, edge_by_side: dict):
-    """Latest flip per ETF within the lookback window.
-
-    Returns (signal or None, info or None). `info` holds flips that were blocked by the
-    trend filter or are not actionable (bearish flips where shorting is not allowed).
-    """
+def evaluate_flip(df: pd.DataFrame, i: int, meta: dict, market: dict, edge_by_side: dict):
+    """Turn the flip on bar i into a signal, or an info line explaining why it is not traded."""
     n = len(df)
-    lo = max(n - config.SIGNAL_LOOKBACK_BARS, 1)
-    idx = [i for i in range(lo, n) if df["st_flip"].iat[i] != 0]
-    if not idx:
-        return None, None
-    i = idx[-1]
     side = int(df["st_flip"].iat[i])
     row = df.iloc[i]
     age = n - 1 - i
@@ -170,6 +153,10 @@ def find_signals(df: pd.DataFrame, meta: dict, market: dict, edge_by_side: dict)
     if not risk > 0:
         return None, {**base, "kind": "blocked", "reason": "opened beyond the stop"}
     target = entry + side * config.TARGET_R * risk
+    target_pct = config.TARGET_R * risk / entry * 100
+    if target_pct < config.MIN_TARGET_PCT:
+        return None, {**base, "kind": "small",
+                      "reason": f"2R target only {target_pct:.1f}% away, below the {config.MIN_TARGET_PCT:g}% minimum"}
 
     status = "Pending entry" if pending else "Active"
     exit_r = None
@@ -181,15 +168,31 @@ def find_signals(df: pd.DataFrame, meta: dict, market: dict, edge_by_side: dict)
             exit_r = (res[1] - entry) * side / risk
 
     last_close = float(df["Close"].iat[-1])
-    score, parts, notes = quality(row, side, risk, weekly_direction(df.iloc[: i + 1]),
-                                  edge_by_side.get(base["side"].lower()), age)
-    rpt = market.get("risk_per_trade")
-    units = rpt / risk if rpt else None
+    r_now = exit_r if exit_r is not None else (last_close - entry) * side / risk
+
+    # Late entry check: if you enter at today's close with the same stop and target, is it still worth it?
+    left_pct = late_rr = None
+    superseded = bool((df["st_flip"].iloc[i + 1:] == -side).any())
+    if status in ("Active", "Pending entry"):
+        left_pct = (target - last_close) * side / last_close * 100
+        room = (last_close - stop) * side
+        late_rr = (target - last_close) * side / room if room > 0 else None
+    if superseded and status == "Active":
+        verdict = "Supertrend flipped back"
+        left_pct = late_rr = None
+    elif status == "Pending entry":
+        verdict = "Enter at next open"
+    elif status == "Active":
+        verdict = "Can still enter" if late_rr is not None and late_rr >= config.LATE_ENTRY_MIN_RR else "Moved on, skip"
+    else:
+        verdict = "Closed at target" if status == "Target hit" else "Closed at stop"
+
+    score, parts, notes = quality(row, side, risk, target_pct, edge_by_side.get(base["side"].lower()), age)
     return {
-        **base, "kind": "signal", "status": status, "entry": entry, "entry_pending": pending,
-        "stop": stop, "target": target, "risk": risk, "risk_pct": risk / entry * 100,
-        "last_close": last_close, "r_now": exit_r if exit_r is not None else (last_close - entry) * side / risk,
-        "units": units, "position_value": units * entry if units else None,
+        **base, "kind": "signal", "status": status, "verdict": verdict, "entry": entry, "entry_pending": pending,
+        "stop": stop, "target": target, "risk": risk, "stop_pct": risk / entry * 100, "target_pct": target_pct,
+        "last_close": last_close, "r_now": r_now, "pct_now": r_now * risk / entry * 100,
+        "left_pct": left_pct, "late_rr": late_rr,
         "score": score, "grade": grade(score), "parts": parts, "notes": notes,
         "vol_ratio": float(row["vol_ratio"]) if _ok(row["vol_ratio"]) else None,
         "rsi": float(row["rsi"]) if _ok(row["rsi"]) else None,
@@ -197,6 +200,26 @@ def find_signals(df: pd.DataFrame, meta: dict, market: dict, edge_by_side: dict)
     }, None
 
 
+def find_signals(df: pd.DataFrame, meta: dict, market: dict, edge_by_side: dict):
+    """Every flip from the last HISTORY_DAYS calendar days, so a missed day never hides an entry.
+
+    Returns (signals list, info or None). Info is only kept for the ETF's most recent flip.
+    """
+    cutoff = df.index[-1] - pd.Timedelta(days=config.HISTORY_DAYS - 1)
+    flips = [i for i in np.flatnonzero(df["st_flip"].to_numpy() != 0) if i >= 1 and df.index[i] >= cutoff]
+    signals, info = [], None
+    for i in flips:
+        sig, inf = evaluate_flip(df, int(i), meta, market, edge_by_side)
+        if sig:
+            signals.append(sig)
+        if i == flips[-1]:
+            info = inf
+    return signals, info
+
+
+VERDICT_ORDER = {"Enter at next open": 0, "Can still enter": 0, "Moved on, skip": 1,
+                 "Supertrend flipped back": 2, "Closed at target": 3, "Closed at stop": 3}
+
+
 def rank(signals: list) -> list:
-    order = {"Pending entry": 0, "Active": 0, "Target hit": 1, "Stopped": 2}
-    return sorted(signals, key=lambda s: (order.get(s["status"], 3), -s["score"]))
+    return sorted(signals, key=lambda s: (VERDICT_ORDER.get(s["verdict"], 4), -s["score"], s["age"]))

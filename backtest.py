@@ -23,6 +23,7 @@ class Trade:
     exit_price: float
     exit_reason: str     # target / stop / stop (gap) / target (gap) / stop (same bar) / open
     r: float
+    ret_pct: float       # % move on the position, side-adjusted
     bars_held: int
     filtered: bool       # True if the trend filter was applied in this run
 
@@ -69,7 +70,7 @@ def run_backtest(df: pd.DataFrame, ticker: str, allow_shorts: bool, use_filter: 
     st = df["st"].to_numpy(dtype=float)
     dates = df.index
     start = warmup_index(df)
-    trades, skipped = [], 0
+    trades, skipped, below_min = [], 0, 0
     next_free = start
 
     for i in range(start, len(df)):
@@ -89,20 +90,25 @@ def run_backtest(df: pd.DataFrame, ticker: str, allow_shorts: bool, use_filter: 
         if not risk > 0:
             skipped += 1  # opened beyond the stop
             continue
+        if config.TARGET_R * risk / entry * 100 < config.MIN_TARGET_PCT:
+            below_min += 1  # move too small to be worth a swing trade
+            continue
         target = entry + side * config.TARGET_R * risk
         res = simulate_exit(o, h, l, check_from, stop, target, side, skip_gap)
         if res is None:
             trades.append(Trade(ticker, "Long" if side == 1 else "Short", d(dates[i]), d(dates[ei]),
                                 entry, stop, target, "", c[-1], "open", (c[-1] - entry) * side / risk,
+                                (c[-1] - entry) * side / entry * 100,
                                 len(df) - 1 - ei, use_filter))
             break
         j, px, reason = res
         trades.append(Trade(ticker, "Long" if side == 1 else "Short", d(dates[i]), d(dates[ei]),
                             entry, stop, target, d(dates[j]), px, reason, (px - entry) * side / risk,
+                            (px - entry) * side / entry * 100,
                             j - ei, use_filter))
         next_free = j  # a flip on the exit bar can start the next trade
 
-    return trades, metrics(trades, df, start, skipped)
+    return trades, metrics(trades, df, start, skipped, below_min)
 
 
 def d(ts) -> str:
@@ -115,11 +121,11 @@ def _side_stats(rs):
     return {"n": len(rs), "win_rate": float((rs > 0).mean() * 100), "expectancy": float(rs.mean())}
 
 
-def metrics(trades, df, start, skipped=0) -> dict:
+def metrics(trades, df, start, skipped=0, below_min=0) -> dict:
     closed = [t for t in trades if t.exit_reason != "open"]
     open_t = [t for t in trades if t.exit_reason == "open"]
     c = df["Close"].to_numpy(dtype=float)
-    out = {"bars_tested": max(len(df) - start, 0), "skipped": skipped,
+    out = {"bars_tested": max(len(df) - start, 0), "skipped": skipped, "below_min": below_min,
            "open_trade": asdict(open_t[0]) if open_t else None,
            "start_date": d(df.index[start]) if start < len(df) else None,
            "end_date": d(df.index[-1])}
@@ -137,7 +143,8 @@ def metrics(trades, df, start, skipped=0) -> dict:
     if len(rs) == 0:
         out.update({k: None for k in ("win_rate", "avg_win", "avg_loss", "expectancy", "profit_factor",
                                       "total_r", "max_dd_r", "max_loss_streak", "avg_bars", "exposure",
-                                      "trades_per_year", "system_cagr")})
+                                      "trades_per_year", "system_cagr", "avg_ret_pct",
+                                      "avg_win_pct", "avg_loss_pct")})
         out["long"], out["short"] = _side_stats(rs), _side_stats(rs)
         return out
 
@@ -164,6 +171,9 @@ def metrics(trades, df, start, skipped=0) -> dict:
         "exposure": float(held / out["bars_tested"] * 100) if out["bars_tested"] else None,
         "trades_per_year": float(len(rs) / years) if years else None,
         "system_cagr": float((equity ** (1 / years) - 1) * 100) if years >= 0.5 and equity > 0 else None,
+        "avg_ret_pct": float(np.mean([t.ret_pct for t in closed])),
+        "avg_win_pct": float(np.mean([t.ret_pct for t in closed if t.r > 0])) if len(wins) else None,
+        "avg_loss_pct": float(np.mean([t.ret_pct for t in closed if t.r <= 0])) if len(losses) else None,
         "long": _side_stats(np.array([t.r for t in closed if t.side == "Long"])),
         "short": _side_stats(np.array([t.r for t in closed if t.side == "Short"])),
     })
@@ -172,7 +182,8 @@ def metrics(trades, df, start, skipped=0) -> dict:
 
 def aggregate(all_trades) -> dict:
     """Pooled stats across every ETF in a market."""
-    rs = np.array([t.r for t in all_trades if t.exit_reason != "open"], dtype=float)
+    closed = [t for t in all_trades if t.exit_reason != "open"]
+    rs = np.array([t.r for t in closed], dtype=float)
     if len(rs) == 0:
         return {"trades": 0}
     wins, losses = rs[rs > 0], rs[rs <= 0]
@@ -182,6 +193,7 @@ def aggregate(all_trades) -> dict:
         "expectancy": float(rs.mean()),
         "profit_factor": float(wins.sum() / -losses.sum()) if losses.sum() < 0 else None,
         "total_r": float(rs.sum()),
+        "avg_ret_pct": float(np.mean([t.ret_pct for t in closed])),
     }
 
 
