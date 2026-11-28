@@ -1,5 +1,28 @@
 {
-  "updated": "2026-11-27",
+  "updated": "2026-11-28",
   "days_kept": 7,
-  "signals": []
+  "signals": [
+    {
+      "key": "SCHD|Long|2026-11-27",
+      "first_seen": "2026-11-28",
+      "ticker": "SCHD",
+      "name": "Schwab US Dividend Equity ETF",
+      "side": "Long",
+      "flip_date": "2026-11-27",
+      "entry": 35.67,
+      "stop": 34.139,
+      "target": 38.7319,
+      "target_pct": 8.5841,
+      "score": 63.2478,
+      "grade": "B",
+      "status": "Pending entry",
+      "verdict": "Enter at next open",
+      "r_now": 0.0,
+      "pct_now": 0.0,
+      "left_pct": 8.5841,
+      "late_rr": 2.0,
+      "market": "US",
+      "last_updated": "2026-11-28"
+    }
+  ]
 }
